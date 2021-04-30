@@ -1,0 +1,11 @@
+[CONTRACT]
+id = "whatever"
+names = ["client", "bitch"]
+
+[AVL.INV]
+|     a     |    b    |    c     |
+| --------- | ------- | -------- |
+| Jak       | To      | Jest     |
+| Ze        | Nigdy   | Nie      |
+| Mamy      | Czasu   | Na       |
+| Tworzenie | Dobrych | Narzedzi |
