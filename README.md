@@ -13,9 +13,12 @@ Currently only supports very basic projections of specific fields from one or mo
 1. [x] Basic projection, i.e. `SELECT a, b FROM section`
 2. [x] Selecting from dict sections, i.e. `SELECT dates,purchase_id FROM CONTRACT, AVL.INV`
 3. [ ] Filtering the results, i.e. `SELECT dates,room FROM AVL.INV WHERE room = 'DBL'`
-    3.1. [ ] Equality operator
-    3.2. [ ] Type aware operators (i.e. `>`, `<`, etc. for numerical values)
-    3.3. [ ] Regex operator
+
+    3.1 [ ] Equality operator
+
+    3.2 [ ] Type aware operators (i.e. `>`, `<`, etc. for numerical values)
+
+    3.3 [ ] Regex operator
 4. [ ] Joins on sections (+ aliases), i.e. `SELECT i.dates, s.room FROM AVL.INV i JOIN AVL.STATE s ON (i.room = s.room)`
 5. [ ] Support for `LIMIT`
 6. [ ] Support for `ORDER BY`
