@@ -1,54 +1,162 @@
 use anyhow::anyhow;
 use ion::{Ion, Section, Value};
+use itertools::Itertools;
+
+use self::value_at_position::ValueAtPosition;
 
 pub mod summary;
+pub mod value_at_position;
 
-pub fn extract_fields_from_section<'a>(
+#[derive(Debug)]
+pub struct ResultBuilder<'a, 'n> {
+    field_names: &'n [&'n str],
+    rows: Vec<RowBuilder<'a>>,
+    values_from_dicts: Vec<Option<&'a Value>>,
+}
+
+impl<'a, 'n> ResultBuilder<'a, 'n> {
+    pub fn new(field_names: &'n [&'n str]) -> Self {
+        Self {
+            field_names,
+            rows: vec![],
+            values_from_dicts: vec![None; field_names.len()],
+        }
+    }
+
+    pub fn finish(mut self) -> anyhow::Result<Vec<Vec<&'a Value>>> {
+        let mut rows = vec![];
+
+        for (idx, value) in self.values_from_dicts.into_iter().enumerate() {
+            if let Some(value) = value {
+                for builder in &mut self.rows {
+                    builder.put(idx, value);
+                }
+            }
+        }
+
+        for builder in self.rows {
+            rows.push(builder.finish()?);
+        }
+
+        Ok(rows)
+    }
+}
+
+#[derive(Debug)]
+pub struct RowBuilder<'a> {
+    values: Vec<Option<&'a Value>>,
+}
+
+impl<'a> RowBuilder<'a> {
+    pub fn new(len: usize) -> Self {
+        Self {
+            values: vec![None; len],
+        }
+    }
+
+    pub fn put(&mut self, pos: usize, value: &'a Value) {
+        *self.values.get_mut(pos).unwrap() = Some(value);
+    }
+
+    pub fn finish(self) -> anyhow::Result<Vec<&'a Value>> {
+        if self.values.iter().any(|value| value.is_none()) {
+            return Err(anyhow!("Failed to fill row"));
+        }
+
+        Ok(self.values.into_iter().filter_map(|value| value).collect())
+    }
+}
+
+pub fn extract_fields_from_sections<'a>(
     field_names: &[&str],
-    section: &str,
+    sections: &[&str],
     ion: &'a Ion,
 ) -> anyhow::Result<Vec<Vec<&'a Value>>> {
-    let section = ion
-        .get(section)
-        .ok_or_else(|| anyhow!("Missing section {}", section))?;
+    let mut result_builder = ResultBuilder::new(field_names);
 
-    let header = section_header(&section)
-        .ok_or_else(|| anyhow!("Missing section header"))?;
+    for section in sections {
+        let section = ion
+            .get(section)
+            .ok_or_else(|| anyhow!("Cannot find section {} in ion", section))?;
 
-    let idxs_of_field_in_row: Vec<usize> =
-        extract_field_idxs_from_rows(field_names, header)?;
+        if section.rows.is_empty() {
+            result_builder.extract_fields_from_dict_section(section)?;
+        } else {
+            result_builder.extract_fields_from_rows_section(section)?;
+        }
+    }
 
-    let items = section
-        .rows_without_header()
-        .iter()
-        .map(|row| {
-            idxs_of_field_in_row
-                .iter()
-                .filter_map(|idx| row.get(*idx))
-                .collect()
-        })
-        .collect();
+    result_builder.finish()
+}
 
-    Ok(items)
+impl<'a, 'n> ResultBuilder<'a, 'n> {
+    fn extract_fields_from_dict_section(
+        &mut self,
+        section: &'a Section,
+    ) -> anyhow::Result<()> {
+        let dict_items = self
+            .field_names
+            .iter()
+            .enumerate()
+            .filter_map(|(idx, field_name)| {
+                let value = section.dictionary.get(&field_name.to_string())?;
+
+                Some(ValueAtPosition::new(idx, value))
+            })
+            .collect_vec();
+
+        for value in dict_items {
+            let pos = value.pos();
+            *self.values_from_dicts.get_mut(pos).unwrap() =
+                Some(value.take_value());
+        }
+
+        Ok(())
+    }
+
+    fn extract_fields_from_rows_section(
+        &mut self,
+        section: &'a Section,
+    ) -> anyhow::Result<()> {
+        let header = section_header(&section)
+            .ok_or_else(|| anyhow!("Missing section header"))?;
+
+        let idxs_of_fields_in_row: Vec<ValueAtPosition<usize>> =
+            extract_field_idxs_from_rows(self.field_names, header);
+
+        for (idx, row) in section.rows_without_header().iter().enumerate() {
+            if self.rows.get(idx).is_none() {
+                self.rows
+                    .insert(idx, RowBuilder::new(self.field_names.len()));
+            }
+            let row_builder = self.rows.get_mut(idx).unwrap();
+
+            for field_idx in &idxs_of_fields_in_row {
+                if let Some(row_value) = row.get(*field_idx.value()) {
+                    row_builder.put(field_idx.pos(), row_value);
+                }
+            }
+        }
+
+        Ok(())
+    }
 }
 
 fn extract_field_idxs_from_rows(
     field_names: &[&str],
     header: &[Value],
-) -> Result<Vec<usize>, anyhow::Error> {
+) -> Vec<ValueAtPosition<usize>> {
     field_names
         .iter()
-        .map(|field_name| {
-            header
-                .iter()
-                .position(|header_field| {
-                    &header_field.to_string() == field_name
-                })
-                .ok_or_else(|| {
-                    anyhow!("Cannot find {} in {:?}", field_name, header)
-                })
+        .enumerate()
+        .filter_map(|(idx, field_name)| {
+            let idx_in_row = header.iter().position(|header_field| {
+                &header_field.to_string() == field_name
+            })?;
+
+            Some(ValueAtPosition::new(idx, idx_in_row))
         })
-        .collect::<Result<_, _>>()
+        .collect()
 }
 
 fn section_header(section: &Section) -> Option<&[Value]> {
