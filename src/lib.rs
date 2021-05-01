@@ -2,6 +2,7 @@ use std::fs;
 use std::path::Path;
 
 use anyhow::{anyhow, Context};
+use config::Config;
 use ion::{Ion, Value};
 use itertools::Itertools;
 use sqlparser::ast::{
@@ -9,7 +10,9 @@ use sqlparser::ast::{
 };
 use sqlparser::dialect::GenericDialect;
 
+pub mod config;
 mod ion_utils;
+mod row_mapping;
 
 pub fn parse_query(s: &str) -> anyhow::Result<Box<Select>> {
     let dialect = GenericDialect {};
@@ -55,6 +58,7 @@ pub fn parse_query(s: &str) -> anyhow::Result<Box<Select>> {
 pub fn query_file(
     path: impl AsRef<Path>,
     query: &str,
+    config: &Config,
 ) -> anyhow::Result<Vec<Vec<Value>>> {
     let path = path.as_ref();
 
@@ -62,26 +66,28 @@ pub fn query_file(
         format!("Failed to read content from {}", path.display())
     })?;
 
-    query_content(&content, query)
+    query_content(&content, query, config)
 }
 
 pub fn query_content(
     content: &str,
     query: &str,
+    config: &Config,
 ) -> anyhow::Result<Vec<Vec<Value>>> {
     let ion: Ion = content.parse().context("Failed to parse content as ion")?;
 
-    let results = query_ion(&ion, query)?;
+    let results = query_ion(&ion, query, config)?;
 
     Ok(results
         .into_iter()
-        .map(|row| row.into_iter().map(|x| x.clone()).collect())
+        .map(|row| row.into_iter().cloned().collect())
         .collect())
 }
 
 pub fn query_ion<'a>(
     ion: &'a Ion,
     query: &str,
+    config: &Config,
 ) -> anyhow::Result<Vec<Vec<&'a Value>>> {
     let query = parse_query(query)?;
 
@@ -114,6 +120,7 @@ pub fn query_ion<'a>(
         &proj,
         &section_names_str,
         &ion,
+        &config.mappings,
     )?;
 
     Ok(result_values)

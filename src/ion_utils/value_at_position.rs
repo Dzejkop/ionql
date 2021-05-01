@@ -21,7 +21,7 @@ impl<T> ValueAtPosition<T> {
         self.value
     }
 
-    pub fn map<Q>(self, map: impl FnOnce(T) -> Q) -> ValueAtPosition<Q> {
+    pub fn _map<Q>(self, map: impl FnOnce(T) -> Q) -> ValueAtPosition<Q> {
         ValueAtPosition {
             pos: self.pos,
             value: map(self.value),

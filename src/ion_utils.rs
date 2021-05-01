@@ -3,8 +3,8 @@ use ion::{Ion, Section, Value};
 use itertools::Itertools;
 
 use self::value_at_position::ValueAtPosition;
+use crate::row_mapping::Mapping;
 
-pub mod summary;
 pub mod value_at_position;
 
 #[derive(Debug)]
@@ -63,7 +63,7 @@ impl<'a> RowBuilder<'a> {
             return Err(anyhow!("Failed to fill row"));
         }
 
-        Ok(self.values.into_iter().filter_map(|value| value).collect())
+        Ok(self.values.into_iter().flatten().collect())
     }
 }
 
@@ -71,18 +71,23 @@ pub fn extract_fields_from_sections<'a>(
     field_names: &[&str],
     sections: &[&str],
     ion: &'a Ion,
+    mapping: &Mapping,
 ) -> anyhow::Result<Vec<Vec<&'a Value>>> {
     let mut result_builder = ResultBuilder::new(field_names);
 
-    for section in sections {
-        let section = ion
-            .get(section)
-            .ok_or_else(|| anyhow!("Cannot find section {} in ion", section))?;
+    for section_name in sections {
+        let section = ion.get(section_name).ok_or_else(|| {
+            anyhow!("Cannot find section {} in ion", section_name)
+        })?;
 
         if section.rows.is_empty() {
             result_builder.extract_fields_from_dict_section(section)?;
         } else {
-            result_builder.extract_fields_from_rows_section(section)?;
+            result_builder.extract_fields_from_rows_section(
+                section,
+                section_name,
+                mapping,
+            )?;
         }
     }
 
@@ -117,12 +122,28 @@ impl<'a, 'n> ResultBuilder<'a, 'n> {
     fn extract_fields_from_rows_section(
         &mut self,
         section: &'a Section,
+        section_name: &str,
+        mapping: &Mapping,
     ) -> anyhow::Result<()> {
-        let header = section_header(&section)
-            .ok_or_else(|| anyhow!("Missing section header"))?;
+        let idxs_of_fields_in_row =
+            if let Some(mapping) = mapping.get(section_name) {
+                self.field_names
+                    .iter()
+                    .enumerate()
+                    .filter_map(|(idx, field_name)| {
+                        ValueAtPosition::new(idx, mapping.get(field_name))
+                            .transpose()
+                    })
+                    .collect()
+            } else {
+                let header = section_header(&section)
+                    .ok_or_else(|| anyhow!("Missing section header"))?;
 
-        let idxs_of_fields_in_row: Vec<ValueAtPosition<usize>> =
-            extract_field_idxs_from_rows(self.field_names, header);
+                let idxs_of_fields_in_row: Vec<ValueAtPosition<usize>> =
+                    extract_field_idxs_from_rows(self.field_names, header);
+
+                idxs_of_fields_in_row
+            };
 
         for (idx, row) in section.rows_without_header().iter().enumerate() {
             if self.rows.get(idx).is_none() {
