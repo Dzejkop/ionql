@@ -110,6 +110,10 @@ impl<'a, 'n> ResultBuilder<'a, 'n> {
             })
             .collect_vec();
 
+        if self.rows.is_empty() {
+            self.rows.push(RowBuilder::new(self.field_names.len()));
+        }
+
         for value in dict_items {
             let pos = value.pos();
             *self.values_from_dicts.get_mut(pos).unwrap() =

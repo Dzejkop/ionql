@@ -10,11 +10,11 @@ use ionql::config::Config;
 /// Stuff
 pub struct Args {
     #[argh(positional)]
-    /// target file
-    target: PathBuf,
+    query: String,
 
     #[argh(positional)]
-    query: String,
+    /// target file
+    targets: Vec<PathBuf>,
 
     /// prints out the query in debug format instead of running the program
     #[argh(switch, short = 'q')]
@@ -55,14 +55,16 @@ fn main() -> anyhow::Result<()> {
 
     let config = Config::load_or_create_default(&config_location)?;
 
-    let results = ionql::query_file(args.target, args.query.as_str(), &config)?;
+    for target in args.targets {
+        let results = ionql::query_file(target, args.query.as_str(), &config)?;
 
-    let results = Section {
-        dictionary: Default::default(),
-        rows: results,
-    };
+        let results = Section {
+            dictionary: Default::default(),
+            rows: results,
+        };
 
-    println!("{}", results);
+        println!("{}", results);
+    }
 
     Ok(())
 }
